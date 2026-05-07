@@ -1,0 +1,9 @@
+# Minimal requirements for running the diagnostic toolkit
+torch
+torchvision
+numpy
+matplotlib
+scikit-learn
+seaborn
+pandas
+tqdm
