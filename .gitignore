@@ -1,0 +1,4 @@
+.cache/
+.matplotlib_cache/
+__pycache__/
+simple_diagnostic_results/

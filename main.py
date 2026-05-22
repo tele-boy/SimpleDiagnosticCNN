@@ -1,3 +1,7 @@
+import os
+os.environ.setdefault("MPLCONFIGDIR", os.path.join(os.getcwd(), ".matplotlib_cache"))
+os.environ.setdefault("XDG_CACHE_HOME", os.path.join(os.getcwd(), ".cache"))
+
 import matplotlib
 matplotlib.use('Agg')
 import SimpleDiagnosticCNN # class for simple CNN
@@ -89,7 +93,7 @@ def train_simple_model(model, train_loader, test_loader, num_epochs=15):
               f'Train Loss: {avg_train_loss:.4f}, Acc: {train_acc:.1f}% | '
               f'Test Loss: {avg_test_loss:.4f}, Acc: {test_acc:.1f}%')
 
-        print(f"Training completed! Final test accuracy: {test_acc:.1f}%")
+    print(f"Training completed! Final test accuracy: {history['test_acc'][-1]:.1f}%")
     return history, model
 
 
