@@ -1,3 +1,7 @@
+import os
+os.environ.setdefault("MPLCONFIGDIR", os.path.join(os.getcwd(), ".matplotlib_cache"))
+os.environ.setdefault("XDG_CACHE_HOME", os.path.join(os.getcwd(), ".cache"))
+
 import matplotlib
 matplotlib.use('Agg')
 import torch
@@ -7,7 +11,6 @@ from sklearn.decomposition import PCA
 from sklearn.metrics import confusion_matrix
 import seaborn as sns
 import pandas as pd
-import os
 
 class SimpleDiagnosticTool:
 
@@ -54,7 +57,7 @@ class SimpleDiagnosticTool:
 
         weights = self.model.conv1.weight.data.cpu().numpy()
 
-        fig, axes = plt.subplots(2, 4, figsize=(12, 6))
+        fig, axes = plt.subplots(2, 4, figsize=(12, 6), constrained_layout=True)
         fig.suptitle('First Layer Convolutional Filters (8 filters)', fontsize=14)
 
         for i in range(8):
@@ -67,8 +70,7 @@ class SimpleDiagnosticTool:
             ax.set_title(f'Filter {i + 1}')
             ax.axis('off')
 
-        plt.colorbar(im, ax=axes, orientation='horizontal', pad=0.1)
-        plt.tight_layout()
+        fig.colorbar(im, ax=axes.ravel().tolist(), orientation='horizontal', pad=0.05)
         plt.savefig(os.path.join(self.output_dir, '2_conv_filters.png'), dpi=150)
         plt.close()
         print(f"Saved: {self.output_dir}/2_conv_filters.png")
@@ -92,7 +94,7 @@ class SimpleDiagnosticTool:
 
         activations = self.model.activations
 
-        fig, axes = plt.subplots(3, 4, figsize=(14, 10))
+        fig, axes = plt.subplots(4, 4, figsize=(14, 12))
         fig.suptitle('Feature Map Visualization Analysis', fontsize=14)
 
         input_img = sample_data[0, 0].cpu().numpy()
@@ -121,14 +123,16 @@ class SimpleDiagnosticTool:
                 axes[2, i].set_title(f'Layer 3 Channel {i + 1}')
                 axes[2, i].axis('off')
 
-        axes[2, 3].axis('off')
-        plt.text(0.5, 0.5, 'Feature Map Analysis:\n'
-                           '- Layer 1: Edges/Textures\n'
-                           '- Layer 2: Shape Parts\n'
-                           '- Layer 3: High-level Features',
-                 transform=axes[2, 3].transAxes,
-                 ha='center', va='center',
-                 bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+        for ax in axes[3]:
+            ax.axis('off')
+
+        axes[3, 0].text(0.5, 0.5, 'Feature Map Analysis:\n'
+                                   '- Layer 1: Edges/Textures\n'
+                                   '- Layer 2: Shape Parts\n'
+                                   '- Layer 3: High-level Features',
+                        transform=axes[3, 0].transAxes,
+                        ha='center', va='center',
+                        bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
 
         plt.tight_layout()
         plt.savefig(os.path.join(self.output_dir, '3_feature_maps.png'), dpi=150)
@@ -154,17 +158,25 @@ class SimpleDiagnosticTool:
                 if count >= num_samples:
                     break
 
-                data = data.to(device)
+                remaining = num_samples - count
+                data = data[:remaining].to(device)
+                target = target[:remaining]
                 feature = self.model.extract_features(data)
                 feature = feature.cpu().numpy()
 
                 batch_size = data.size(0)
-                features.append(feature[:batch_size])
-                labels.append(target.numpy()[:batch_size])
+                features.append(feature)
+                labels.append(target.numpy())
                 count += batch_size
+
+        if not features:
+            raise ValueError("data_loader did not provide any samples")
 
         features = np.vstack(features)
         labels = np.hstack(labels)
+
+        if len(features) < 2:
+            raise ValueError("At least two samples are required for PCA visualization")
 
         pca = PCA(n_components=2)
         features_pca = pca.fit_transform(features)
@@ -233,7 +245,13 @@ class SimpleDiagnosticTool:
                             inter_distances.append(distance)
 
             if intra_distances and inter_distances:
-                separation_ratio = np.mean(inter_distances) / np.mean(intra_distances)
+                mean_intra_distance = np.mean(intra_distances)
+                if mean_intra_distance == 0:
+                    print("Class separation ratio: inf")
+                    print("Good: Clear class separation in feature space")
+                    return
+
+                separation_ratio = np.mean(inter_distances) / mean_intra_distance
                 print(f"Class separation ratio: {separation_ratio:.2f}")
 
                 if separation_ratio < 1.5:

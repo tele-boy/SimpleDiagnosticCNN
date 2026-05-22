@@ -1,5 +1,8 @@
-import matplotlib
+import os
+os.environ.setdefault("MPLCONFIGDIR", os.path.join(os.getcwd(), ".matplotlib_cache"))
+os.environ.setdefault("XDG_CACHE_HOME", os.path.join(os.getcwd(), ".cache"))
 
+import matplotlib
 matplotlib.use('Agg')
 import torch
 import torch.nn as nn
@@ -17,8 +20,9 @@ class SimpleDiagnosticCNN(nn.Module):
         self.conv3 = nn.Conv2d(16, 32, kernel_size=3, padding=1)
 
         self.pool = nn.MaxPool2d(2, 2)
+        self.adaptive_pool = nn.AdaptiveAvgPool2d((3, 3))
 
-        self.fc1 = nn.Linear(32 * 3 * 3, 64)  # 28x28 -> 14x14 -> 7x7 -> 3x3
+        self.fc1 = nn.Linear(32 * 3 * 3, 64)
         self.fc2 = nn.Linear(64, num_classes)
 
         self.dropout = nn.Dropout(0.3)
@@ -27,21 +31,22 @@ class SimpleDiagnosticCNN(nn.Module):
 
     def forward(self, x):
         x = self.conv1(x)
-        self.activations['conv1'] = x.clone()
+        self.activations['conv1'] = x.detach().clone()
         x = F.relu(x)
         x = self.pool(x)
 
         x = self.conv2(x)
-        self.activations['conv2'] = x.clone()
+        self.activations['conv2'] = x.detach().clone()
         x = F.relu(x)
         x = self.pool(x)
 
         x = self.conv3(x)
-        self.activations['conv3'] = x.clone()
+        self.activations['conv3'] = x.detach().clone()
         x = F.relu(x)
         x = self.pool(x)
 
-        x = x.view(x.size(0), -1)
+        x = self.adaptive_pool(x)
+        x = torch.flatten(x, 1)
 
         x = F.relu(self.fc1(x))
         x = self.dropout(x)
@@ -56,7 +61,8 @@ class SimpleDiagnosticCNN(nn.Module):
         x = self.pool(x)
         x = F.relu(self.conv3(x))
         x = self.pool(x)
-        return x.view(x.size(0), -1)
+        x = self.adaptive_pool(x)
+        return torch.flatten(x, 1)
 
 
 def create_simple_dataset(num_samples=800, img_size=28):
@@ -65,31 +71,36 @@ def create_simple_dataset(num_samples=800, img_size=28):
     images = []
     labels = []
 
+    center = img_size // 2
+    radius = max(2, img_size // 4)
+    inner = max(1, img_size // 3)
+    outer = img_size - inner
+    bar = max(1, img_size // 7)
+    half_bar = max(1, bar // 2)
+
     for i in range(num_samples):
         img = np.zeros((1, img_size, img_size))
 
         label = i % 4
 
         if label == 0:
-            center_x, center_y = 14, 14
-            radius = 8
             for x in range(img_size):
                 for y in range(img_size):
-                    if (x - center_x) ** 2 + (y - center_y) ** 2 <= radius ** 2:
+                    if (x - center) ** 2 + (y - center) ** 2 <= radius ** 2:
                         img[0, x, y] = 1.0
 
         elif label == 1:
-            img[0, 8:20, 8:20] = 1.0
+            img[0, inner:outer, inner:outer] = 1.0
 
         elif label == 2:
             for x in range(img_size):
                 for y in range(img_size):
-                    if x >= y and x <= img_size - y and x >= 8 and x <= 20:
+                    if inner <= x <= outer and abs(y - center) <= (x - inner):
                         img[0, x, y] = 1.0
 
         elif label == 3:
-            img[0, 10:18, 12:16] = 1.0
-            img[0, 12:16, 10:18] = 1.0
+            img[0, inner:outer, center - half_bar:center + half_bar] = 1.0
+            img[0, center - half_bar:center + half_bar, inner:outer] = 1.0
 
         noise = np.random.normal(0, 0.1, (1, img_size, img_size))
         img = np.clip(img + noise, 0, 1)
